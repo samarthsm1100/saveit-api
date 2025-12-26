@@ -1,27 +1,50 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import StreamingResponse
 import yt_dlp
 import subprocess
 import tempfile
 import os
+from typing import Optional
 
 app = FastAPI()
 
-@app.get("/")
-def health():
-    return {"status": "ok"}
+# Global variable to store uploaded cookies path
+COOKIES_PATH = None
 
-# ================= MP3 =================
+
+@app.post("/upload-cookies")
+async def upload_cookies(file: UploadFile = File(...)):
+    """
+    Upload your YouTube cookies.txt file.
+    """
+    global COOKIES_PATH
+    if not file.filename.endswith(".txt"):
+        raise HTTPException(status_code=400, detail="Please upload a valid cookies.txt file")
+    
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+    content = await file.read()
+    tmp.write(content)
+    tmp.close()
+    
+    COOKIES_PATH = tmp.name
+    return {"detail": "Cookies uploaded successfully"}
+
+
 @app.get("/download/mp3")
 def download_mp3(url: str = Query(...)):
+    """
+    Download YouTube video as MP3 using uploaded cookies (if any)
+    """
     try:
-        # Attempt without cookies first
         ydl_opts = {
             "format": "bestaudio",
             "quiet": True,
             "no_warnings": True,
             "geo_bypass": True
         }
+
+        if COOKIES_PATH:
+            ydl_opts["cookiefile"] = COOKIES_PATH
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -50,18 +73,20 @@ def download_mp3(url: str = Query(...)):
         )
 
     except yt_dlp.utils.DownloadError as e:
-        # Detect bot‑block pattern
         msg = str(e)
         if "Sign in to confirm" in msg or "LOGIN_REQUIRED" in msg:
             raise HTTPException(
                 status_code=400,
-                detail="YouTube bot detection: try using a cookies upload or use a different video."
+                detail="Bot detection / login required. Upload cookies to download this video."
             )
         raise HTTPException(status_code=500, detail=msg)
 
-# ================= MP4 =================
+
 @app.get("/download/mp4")
 def download_mp4(url: str = Query(...)):
+    """
+    Download YouTube video as MP4 using uploaded cookies (if any)
+    """
     try:
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
         tmp.close()
@@ -74,6 +99,9 @@ def download_mp4(url: str = Query(...)):
             "no_warnings": True,
             "geo_bypass": True
         }
+
+        if COOKIES_PATH:
+            ydl_opts["cookiefile"] = COOKIES_PATH
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
@@ -97,6 +125,6 @@ def download_mp4(url: str = Query(...)):
         if "Sign in to confirm" in msg or "LOGIN_REQUIRED" in msg:
             raise HTTPException(
                 status_code=400,
-                detail="YouTube bot detection: try using a cookies upload or use a different video."
+                detail="Bot detection / login required. Upload cookies to download this video."
             )
         raise HTTPException(status_code=500, detail=msg)
