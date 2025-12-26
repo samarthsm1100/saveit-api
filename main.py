@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 import yt_dlp
 import subprocess
@@ -15,10 +15,12 @@ def health():
 @app.get("/download/mp3")
 def download_mp3(url: str = Query(...)):
     try:
+        # Attempt without cookies first
         ydl_opts = {
             "format": "bestaudio",
             "quiet": True,
-            "no_warnings": True
+            "no_warnings": True,
+            "geo_bypass": True
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -47,9 +49,15 @@ def download_mp3(url: str = Query(...)):
             }
         )
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+    except yt_dlp.utils.DownloadError as e:
+        # Detect bot‑block pattern
+        msg = str(e)
+        if "Sign in to confirm" in msg or "LOGIN_REQUIRED" in msg:
+            raise HTTPException(
+                status_code=400,
+                detail="YouTube bot detection: try using a cookies upload or use a different video."
+            )
+        raise HTTPException(status_code=500, detail=msg)
 
 # ================= MP4 =================
 @app.get("/download/mp4")
@@ -63,7 +71,8 @@ def download_mp4(url: str = Query(...)):
             "merge_output_format": "mp4",
             "outtmpl": tmp.name,
             "quiet": True,
-            "no_warnings": True
+            "no_warnings": True,
+            "geo_bypass": True
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -83,5 +92,11 @@ def download_mp4(url: str = Query(...)):
             }
         )
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except yt_dlp.utils.DownloadError as e:
+        msg = str(e)
+        if "Sign in to confirm" in msg or "LOGIN_REQUIRED" in msg:
+            raise HTTPException(
+                status_code=400,
+                detail="YouTube bot detection: try using a cookies upload or use a different video."
+            )
+        raise HTTPException(status_code=500, detail=msg)
